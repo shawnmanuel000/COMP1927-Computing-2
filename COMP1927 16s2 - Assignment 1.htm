@@ -1,0 +1,880 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<!-- saved from url=(0059)https://cgi.cse.unsw.edu.au/~cs1927/16s2/ass/ass1/index.php -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>COMP1927 16s2 - Assignment 1</title>
+<link rel="stylesheet" type="text/css" href="./COMP1927 16s2 - Assignment 1_files/course.css"></head>
+<body>
+<div align="center">
+<table width="100%" border="0">
+<tbody><tr valign="top">
+<td align="left" width="25%">
+  <span class="tiny"><a href="http://www.cse.unsw.edu.au/~cs1927/16s2/index.php">COMP1927 16s2</a></span>
+</td>
+<td align="center" width="50%">
+  <span class="heading">Assignment 1</span><br>
+  <span class="subheading"></span>
+</td>
+<td align="right" width="25%">
+  <span class="tiny"><a href="http://www.cse.unsw.edu.au/~cs1927/16s2/index.php">Computing 2</a></span>
+</td>
+</tr></tbody></table>
+</div><center><table border="0">
+<tbody><tr>
+<td> <img align="center" src="./COMP1927 16s2 - Assignment 1_files/bat.png"> </td>
+<td> &nbsp; &nbsp; &nbsp; &nbsp; </td>
+<td align="center"> <span style="font-size:22pt">Vlad: The Allocator</span>
+<br>
+<span style="font-size:65%">(Courtesy Gabi Keller)</span>
+<br>
+<div style="text-align:center;font-size:80%;color:#555555;margin-top:5px;">
+Last updated: <b>Tuesday 16th August 1:24pm</b> <br>
+Most recent changes are shown in <span class="red">red</span> ...
+older changes are shown in <span class="brown">brown</span>. <br>
+</div></td>
+<td> &nbsp; &nbsp; &nbsp; &nbsp; </td>
+<td> <img align="center" src="./COMP1927 16s2 - Assignment 1_files/bat.png"> </td>
+</tr></tbody></table>
+</center>
+
+<h2>Objectives</h2>
+<ul>
+<li> to give you experience in managing memory space
+</li><li> to give you (more) experience with doubly-linked lists
+</li><li> to give you further practice with C and data structures
+</li><li> to look at a (yet another) simple command interpreter
+</li></ul>
+
+<h2>Admin</h2>
+<table border="0" cellpadding="4">
+<tbody><tr valign="top"><td><b>Marks</b></td><td>8 <small>(towards total course mark)</small><br><small>(Note that the marks below add up to XX; they will be scaled to a mark out of 8)</small></td></tr>
+<tr valign="top"><td><b>Group?</b></td><td>This assignment is completed <b>individually</b></td></tr>
+<tr valign="top"><td><b>Due</b></td><td>9:00am on Monday 29th August</td></tr>
+<tr valign="top"><td><b>Submit</b></td><td><tt>give cs1927 ass1 allocator.c</tt> &nbsp; or via Webcms<br>
+</td></tr><tr valign="top"><td><b>Late<br>Penalty</b></td><td>0.08 marks per hour late (approx 1.9 marks per day) off the ceiling<br><small>(e.g. if you are 36 hours late, your maximum possible mark is 5.1/8)</small></td></tr>
+</tbody></table>
+<p>
+Since I'll be discussing the solution in the lecture on Monday 5th September
+any submissions after 10am on that day will be ignored (i.e. zero marks).
+</p>
+
+<h2>General Background</h2>
+<p>
+It is sometimes useful to bypass the standard C memory allocation system
+(good old <tt>malloc()</tt> and <tt>free()</tt>) and implement your own
+custom memory allocation system.
+Examples where this might be needed: when programming in environments with
+strict timing guarantees (like games); when you have limited available
+memory; when you need stronger checking on the validity of pointers to aid
+with debugging.
+</p>
+<p>
+In this assignment, you will develop a memory allocator from scratch.
+(The memory allocator is called "Vlad", in honour of one of history's 
+most notorious <s>impalers</s> allocators).
+This memory allocator will control the usage of a chunk of memory,
+supplied to it initially by C's  <tt>malloc()</tt> function.
+Vlad provides users with controlled access to pieces of this memory chunk
+via two functions which are analogous to <tt>malloc()</tt> and <tt>free()</tt>.
+These two functions partition up the space in the memory chunk, manage
+which pieces are "in use" and which are "free", and split and merge
+the pieces of space so as to minimise wasted space.
+</p>
+<p>
+The goal is to have a large chunk of memory containing <i>N</i> bytes,
+within which small chunks of memory can be allocated, referenced by
+pointer variables, and then de-allocated when no longer required.
+The diagram below shows the state of the memory when there are
+three active chunks of memory, referenced by three pointer variables.
+</p>
+<center><img src="./COMP1927 16s2 - Assignment 1_files/overview.png"></center>
+
+<br>
+<h2>Technical Background</h2>
+<p>
+The goal of this assignment is to implement a
+<a target="_blank" href="http://en.wikipedia.org/wiki/Malloc">dynamic memory allocator</a> of
+your own to replace <tt>malloc()</tt> and <tt>free()</tt>.
+This requires you to design data structures to represent the free/used
+regions of the memory, and to write functions to mnipulate these.
+Used regions are those that have been allocated to a client, and the
+client holds a link to each allocated region.
+Free regions are those that have either never been allocated, or have
+been free'd.
+The free regions are held in a "free list" (a circular doubly-linked
+list).
+You will need to design algorithms to subdivide and merge free
+regions of memory.
+You will also need to deal with mapping between two different
+modes of addressing: absolute memory addresses, and offsets relative
+to the start of the memory chunk.
+</p>
+<p>
+The functions you need to implement:
+</p>
+<dl>
+<dt><tt>vlad_init(nbytes)</tt></dt>
+<dd><p>
+Allocates (using <tt>malloc()</tt>)
+a large chunk of memory for Vlad to manage.
+The size of the chunk is given by the parameter <tt>nbytes</tt>,
+which must be at least 1024.
+</p></dd>
+<dt><tt>vlad_end()</tt></dt>
+<dd><p>
+Releases the memory chunk allocated by <tt>vlad_init()</tt>.
+Once this done, Vlad cannot be used until a new <tt>vlad_init()</tt>
+is executed.
+</p></dd>
+<dt><tt>vlad_malloc(nbytes)</tt></dt>
+<dd><p>
+Requests Vlad to allocate a region of memory for use by a client.
+The requested size of the region is given by the <tt>nbytes</tt>
+parameter.
+Vlad allocates at least as much memory as required, but may actually
+include more memory in the allocated region.
+</p></dd>
+<dt><tt>vlad_free(ptr)</tt></dt>
+<dd><p>
+Releases a region previously allocated by <tt>vlad_malloc()</tt>.
+The region is identified by the <tt>ptr</tt> parameter.
+The region will be added onto the "free list" for potential re-use
+by subsequent calls to <tt>vlad_malloc()</tt>.
+</p></dd>
+</dl>
+<p>
+To help you understand what's going on in your memory allocator, we've
+provided a placeholder function:
+</p>
+<dl>
+<dt><tt>vlad_stats()</tt></dt>
+<dd><p>
+You have to fill in this function and put whatever code you need to show you
+the current state of the data structures within the memory chunk.
+</p></dd>
+<p>
+We will eventually provide you with a graphical interface that will
+let you view the layout of your memory in glorious 2-d technicolor.
+</p>
+
+<br>
+<h2>Milestones and Test Cases</h2>
+<p>
+To help you complete this task, it has been divided into a series of milestones.
+You are advised to attempt them in the order given, and to complete and test
+each one as thoroughly as possible before moving on to the next.
+You are not required to submit the individual milestones, but with the time
+management skills that you learned from COMP1917, we expect that you'll
+make continuous progress on the assignment, milestone by milestone, and not
+leave it all to the last minute.
+</p>
+<p>
+A suggested schedule for completing the milestones: Milestones 0 and 1 by the end of
+Week 3, Milestone 2 by early in Week 4, Milestone 3 by the end of Week 4,
+and Milestone 4 by the assignment deadline.
+</p>
+<p>
+As you go, we expect you to be developing trickier and trickier test cases,
+which you can add to the <a target="_top" href="https://webcms3.cse.unsw.edu.au/COMP1927/16s2/resources/4573">assignment testing page</a> (as comments) if you wish. The test
+cases are not worth marks, but I'll consider prizes for people who come up
+particularly clever (and devious ... but must be valid) test cases.
+See below (in the <b>Testing</b> section) for the format of test case scripts.
+</p>
+
+<br>
+<h2>Milestone 0: Setup <span style="font-size:67%;font-weight:normal">(0 Marks)</span></h2>
+
+<p>
+<b>Aim:</b>
+Collect the files for the assignment.
+Read and understand <tt>allocator.h</tt>, <tt>allocator.c</tt>.
+</p>
+<p>
+A Zip file is available containing all of the files you need to get started with
+this assignment.
+On the CSE workstations, make a directory for this assignment, change into that
+directory, and run the command:
+</p>
+<pre>$ <b>unzip <a href="https://cgi.cse.unsw.edu.au/~cs1927/16s2/ass/ass1/ass1.zip">/home/cs1927/web/16s2/ass/ass1/ass1.zip</a></b>
+</pre>
+<p>
+This will give you four files:
+</p>
+<table border="0" cellpadding="4">
+<tbody><tr><td><tt>Makefile</tt></td><td>a set of dependencies used to control compilation</td></tr>
+<tr><td><tt>allocator.h</tt></td><td>complete interface definition for the allocator ADO</td></tr>
+<tr><td><tt>allocator.c</tt></td><td>skeleton of implementation for the allocator ADO</td></tr>
+<tr><td><tt>vlad.c</tt></td><td>command interpreter for testing the allocator</td></tr>
+</tbody></table>
+<p>
+You should first read <tt>allocator.h</tt> to see what the interface to
+the allocator looks like.
+Then read <tt>allocator.c</tt> to see the parts of the implementation
+that have been provided and to read the detailed comments on each function
+in the interface.
+The provided data structures and constants include:
+</p>
+<table border="0" cellpadding="4">
+<tbody><tr><td><b><tt>u_int32_t</tt></b></td><td>built-in data type for 32-bit unsigned values</td></tr>
+<tr><td><b><tt>byte</tt></b></td><td>data type to represent 8-bit values</td></tr>
+<tr><td><b><tt>vlink_t</tt></b></td><td>data type for links within the allocator; these are <em>indexes</em> not C pointers</td></tr>
+<tr><td><b><tt>vaddr_t</tt></b></td><td>data type for references within the allocator; these are <em>indexes</em> not C pointers</td></tr>
+<tr><td><b><tt>vsize_t</tt></b></td><td>data type for sizes of allocated/free chunks</td></tr>
+<tr><td><b><tt>MAGIC_FREE</tt></b></td><td>distinguished constant to mark free blocks</td></tr>
+<tr><td><b><tt>MAGIC_ALLOC</tt></b></td><td>distinguished constant to mark allocated blocks</td></tr>
+<tr><td><b><tt>FREE_HEADER_SIZE</tt></b></td><td>size of free-list headers</td></tr>
+<tr><td><b><tt>ALLOC_HEADER_SIZE</tt></b></td><td>size of headers in allocated blocks</td></tr>
+</tbody></table>
+<p>
+There are also several constants relating to how you decide which block of
+free memory to allocate, when potentially many possible free blocks might
+be available:
+<table border="0" cellpadding="4">
+<tbody><tr><td><b><tt>BEST_FIT</tt></b></td><td>choose the free block that wastes the least amount of space</td></tr>
+<tr><td><b><tt>WORST_FIT</tt></b></td><td>choose the free block that leaves the greatest amount of free space</td></tr>
+<tr><td><b><tt>RANDOM_FIT</tt></b></td><td>choose any free block that is large enough</td></tr>
+</tbody></table>
+</p><p>
+You only need to implement the <tt>BEST_FIT</tt> strategy for this assignment.
+The other strategies can be used if you implement the Challenge component.
+</p>
+<p>
+In <tt>allocator.c</tt> your will also find a declaration for the free-list
+block header type and the allocated block header type (see diagrams below).
+The file also includes declarations of private global variables
+to reference the block of memory you will use for the allocator:
+</p>
+<pre class="c" style="font-family:monospace;"><span style="color: #993333;">static</span> byte <span style="color: #339933;">*</span>memory <span style="color: #339933;">=</span> NULL<span style="color: #339933;">;</span>   <span style="color: #666666; font-style: italic;">// pointer to start of allocator memory</span>
+<span style="color: #993333;">static</span> vaddr_t free_list_ptr<span style="color: #339933;">;</span> <span style="color: #666666; font-style: italic;">// index in memory[] of first block in free list</span>
+<span style="color: #993333;">static</span> vsize_t memory_size<span style="color: #339933;">;</span>   <span style="color: #666666; font-style: italic;">// number of bytes malloc'd in memory[]</span>
+<span style="color: #993333;">static</span> u_int32_t strategy<span style="color: #339933;">;</span>    <span style="color: #666666; font-style: italic;">// allocation strategy (by default BEST_FIT)</span></pre><p></p>
+<p>
+<em>Note</em>: This is one of the few examples in real-world programming
+where a global variable is desirable (or at least acceptable).
+</p>
+<p>
+Note that you <b>must</b> use all of the above declarations when developing
+your solution.
+You may add other declarations if you wish, but the above must be used
+(since they are required by the <tt>vlad_stats()</tt> function).
+</p>
+<p>
+The <tt>allocator.c</tt> file also contains skeletons* for the functions
+you are required to implement.
+All of the places where you are required to add/change code are flagged
+with a <tt>TODO</tt> comment.
+</p>
+<p>
+Note that the <tt>vlad_stats()</tt> function is a skeleton* whose
+behaviour is not specified. It is intended to provide a simple
+debugging framework. You can either fill <tt>vlad_stats()</tt> 
+with your own code, or implement some completely new functions
+to assist with your debugging.
+We will supply our own version of this function when we come
+to test your submission, which will assume that you have structured
+the contents of the memory precisely as described below.
+</p>
+<p>
+(* Presumably all of these skeletons were left behind by Vlad on one
+of his rampages through the Transylvanian coutryside)
+</p>
+<p>
+At this stage, you could run <tt>make</tt> to build the <tt>vlad</tt>
+program, but you won't get much sense from it until you complete the
+relevant functions in <tt>allocator.c</tt>.
+The following example shows what to expect if you compile and run the
+supplied code without change:
+</p>
+<pre>$ <b>make</b>
+gcc -Wall -Werror   -c -o vlad.o vlad.c
+gcc -Wall -Werror   -c -o allocator.o allocator.c
+gcc   vlad.o allocator.o   -o vlad
+$ ./vlad
+&gt; <b>+ a 20</b>
+Failed to allocate 20 bytes for ptr[a]
+&gt; <b>!</b>
+vlad_stats() won't work until vlad_malloc() works
+&gt; <b>q</b>
+$ 
+</pre>
+<p>
+If you're interested in how <tt>vlad.c</tt> is implemented, you could
+spend a little time reading through it.
+The two most useful commands initially are: <b>?</b> to get help and
+<b>q</b> to quit.
+For debugging, the most useful command will be <b>!</b> to display
+whatever information you think is useful about the allocator's memory.
+</p>
+
+<br>
+<h2>Milestone 1: The Basics <span style="font-size:67%;font-weight:normal">(1 Mark)</span></h2>
+<p>
+<b>Aim:</b>
+Implement the <tt>vlad_init()</tt> and <tt>vlad_end()</tt> functions
+</p>
+<p>
+The <tt>vlad_init()</tt> function will, given a number of bytes <tt><i>N</i></tt>,
+attempt to initialise the allocator with (at least) that much memory.
+The size of the <tt>memory</tt> must be set to a power of two.
+If <tt><i>N</i></tt> is not a power of two, then increase <tt><i>N</i></tt>
+to the smallest value larger than <tt><i>N</i></tt> that <em>is</em> a
+power of two.
+You should call the standard C <tt>malloc()</tt> function and give it the
+correct size to initialise the global variable <tt>memory</tt>.
+Apart from this call
+to <tt>malloc()</tt>, none of the functions in the allocator may call
+the C <tt>malloc()</tt> function. If <tt>malloc()</tt> fails, then your
+program should exit with an error message, as follows:
+</p>
+<pre class="c" style="font-family:monospace;"><a href="http://www.opengroup.org/onlinepubs/009695399/functions/fprintf.html"><span style="color: #000066;">fprintf</span></a><span style="color: #009900;">(</span>stderr<span style="color: #339933;">,</span> <span style="color: #ff0000;">"vlad_init: Insufficient memory<span style="color: #000099; font-weight: bold;">\n</span>"</span><span style="color: #009900;">)</span><span style="color: #339933;">;</span>
+<a href="http://www.opengroup.org/onlinepubs/009695399/functions/exit.html"><span style="color: #000066;">exit</span></a><span style="color: #009900;">(</span>EXIT_FAILURE<span style="color: #009900;">)</span><span style="color: #339933;">;</span></pre><p>
+Once we have our block of memory, it's not much use to us as-is. We have no way
+of tracking what parts of the memory have been allocated and which parts are
+available to be used.
+To solve this problem, we divide the memory up into regions, each prefixed
+by a header.
+</p>
+<p>
+In a <b>free</b> region, the header contains the following components:
+</p>
+<table border="0" cellpadding="4">
+<tbody><tr valign="top"><td><b><tt>magic</tt></b></td><td>a constant 32 bit number, which is unlikely-to-occur-by-chance, and which can be used to detect if the user has accidentally corrupted memory (a <tt>u_int32_t</tt> value)</td></tr>
+<tr valign="top"><td><b><tt>size</tt></b></td><td>the size of the region in bytes, including the header (a <tt>vsize_t</tt> value)</td></tr>
+<tr valign="top"><td><b><tt>next</tt></b></td><td>an index within <tt>memory[]</tt>, the start of the header for the next free region (looping around to the beginning if we are at the end) (a <tt>vlink_t</tt> value)</td></tr>
+<tr valign="top"><td><b><tt>prev</tt></b></td><td>an index within <tt>memory[]</tt>, the strat of the header for the previous free region (looping around to the end if we are at the beginning) (a <tt>vlink_t</tt> value)</td></tr>
+</tbody></table>
+<p>
+In a <b>free</b> region, the magic number is the constant <tt>MAGIC_FREE</tt>,
+and <tt>next</tt> and <tt>prev</tt> will refer to other free regions (or maybe
+to the same region if there is only one free region).
+The size of a free header is available via the constant <tt>FREE_HEADER_SIZE</tt>
+(which is be computed using C's <tt>sizeof</tt> primitive).
+The free list headers form a circular doubly linked list which we call a
+<em>free list</em>.
+</p>
+<p>
+In an <b>allocated</b> region, the header contains the following components:
+</p>
+<table border="0" cellpadding="4">
+<tbody><tr valign="top"><td><b><tt>magic</tt></b></td><td>a constant 32 bit number, which is unlikely-to-occur-by-chance, and which can be used to detect if the user has accidentally corrupted memory (a <tt>u_int32_t</tt> value)</td></tr>
+<tr valign="top"><td><b><tt>size</tt></b></td><td>the size of the region in bytes, including the header (a <tt>vsize_t</tt> value)</td></tr>
+</tbody></table>
+<p>
+In an <b>allocated</b> region, the magic number is the constant <tt>MAGIC_ALLOC</tt>.
+The size of an allocated-region header is available via the constant
+<tt>ALLOC_HEADER_SIZE</tt>
+(which is be computed using C's <tt>sizeof</tt> primitive).
+</p>
+<p>
+Figure 1 shows what each type of region looks like.
+Note that the pointers held by clients (as returned by <tt>vlad_alloc()</tt>)
+are reference the first byte immediately following the allocated-region
+header.
+</p>
+<center>
+<img src="./COMP1927 16s2 - Assignment 1_files/blocks.png">
+<p>
+Figure 1: Different region types
+</p></center>
+<p>
+Note that references within the <tt>memory[]</tt> region are all done as
+indexes into the bytes of that region (types <tt>vaddr_t</tt> and
+<tt>vlink_t</tt>), <em>not</em> as real pointers.
+All memory references returned to clients of the allocator should,
+however, be genuine C pointers (type <tt>(void&nbsp;*)</tt>).
+</p>
+<p>
+Your <tt>vlad_init()</tt> function should, in addition to allocating the
+overall memory block, set up the initial region header as indicated by
+Figure 2. Use the <tt>free_header_t</tt> type for headers,
+and cast the pointer returned by the initial allocation
+to a <tt>(free-header_t&nbsp;*)</tt>
+and then initialise the fields of the header with the appropriate values.
+</p>
+<center>
+<img src="./COMP1927 16s2 - Assignment 1_files/init-memory.png">
+<br>Figure 2: Initial configuration of memory after <tt>vlad_init( <i>N</i> )</tt>
+</center>
+<p>
+Initially, your memory will consist of just one region, with the header starting
+at offset 0 (i.e the address <tt>memory+0</tt>). The size is simply that of all
+available memory, and the next and previous pointers should point to the header
+itself.
+</p>
+<p>
+You will also need to set values of the global variables:
+<tt>free_list_ptr</tt> and <tt>memory_size</tt>.
+The initial value of <tt>free_list_ptr</tt>, a reference to the header
+of the single free block should be set to zero (since it is at the
+first position in the <tt>memory[]</tt> array).
+The <tt>memory_size</tt> variable should be set to the number of
+bytes that were allocated by <tt>malloc()</tt>.
+</p>
+<p>
+The <tt>vlad_end()</tt> function simply frees the <tt>malloc</tt>'ed memory
+from <tt>vlad_init()</tt>.
+</p>
+
+<br>
+<h3>Free List</h3>
+<p>
+While the free list is initially just a single block, after a number
+of <tt>vlad_alloc()</tt>s and <tt>vlad_free()</tt>s, it will likely contain
+multiple regions. The regions should be arranged in order of their location
+in <tt>memory[]</tt>, as shown in Figure 3.
+Note that each free region contains a link to the next region, and also
+a link to the previous region.
+The list is circular, so the first free region has a <tt>prev</tt>
+which links it to the last region, and the last region has a
+<tt>next</tt> that links to the first region.
+(Note: these links are shown only as '*' in the Figure because
+putting them as arrows makes the diagram too messy.)
+We discuss how the free list is manipulated in more detail below.
+</p>
+<center>
+<img src="./COMP1927 16s2 - Assignment 1_files/free-list.png">
+<p>
+Figure 3: Free list
+</p></center>
+
+<br>
+<h2>Milestone 2: Allocation <span style="font-size:67%;font-weight:normal">(3 Marks)</span></h2>
+<p>
+<b>Aim:</b>
+Implement the <tt>vlad_malloc()</tt> function, which attempts to
+find a free region of size <tt><i>n</i></tt> in the memory,
+marks it as allocated and returns a point to the first usable
+byte in that region.
+</p>
+<p>
+This task will require you to do pointer arithmetic in C.
+See the Appendix for a tutorial on how to
+perform the pointer arithmetic required for this milestone.
+</p>
+<p>
+A call to <tt>vlad_malloc(<i>n</i>)</tt> is a request to allocate
+at least <tt><i>n</i></tt> bytes of memory.
+To satisfy this request, we aim to allocate a region which has
+at least (<tt>ALLOC_HEADER_SIZE+<i>n</i></tt>) bytes.
+</p>
+<p>
+We require that all regions are located on 4-byte offsets in <tt>memory[]</tt>,
+and so all regions should be allocated a size which is a multiple of 4.
+If the requested <tt><i>n</i></tt> is not a multiple of 4, then we
+round it up to the smallest multiple of 4 which is greater than or
+equal to the requested size. If, for example, the client requested 13
+bytes, we would aim to give them a 16-byte region. If they requested
+24 bytes, we would aim to give them a 24 byte region.
+</p>
+<p class="red">
+Note: in order to avoid problems when we come to free allocated
+blocks, the minimum amount of memory that can be allocated is 8 bytes.
+Any smaller amount requested can be simply rounded up to 8 bytes.
+</p>
+<p>
+The <tt>vlad_malloc(<i>n</i>)</tt> function then traverses the free list,
+starting at the region referenced by <tt>free_list_ptr</tt>. It will look
+for a region whose size is at least (<tt>ALLOC_HEADER_SIZE+<i>n</i></tt>), 
+where <tt><i>n</i></tt> is the input size to <tt>vlad_malloc</tt>. 
+In this assignment we are using a <tt>BEST_FIT</tt> strategy, and
+so the chosen free region will be the smallest region on the free list
+that is large enough to satisfy the request.
+</p>
+<p>
+If the traversal loops around and reaches <tt>free_list_ptr</tt>
+again without having found any regions big enough, the function should
+immediately return <tt>NULL</tt>.
+</p>
+<p>
+If the selected free region is much larger than the amount requested,
+we don't want to allocate the whole region to the request, so we need
+to split it into a "right-size" allocaed region and a new free region.
+To determine whether regions are split or not, we define a threshold
+size:
+</p>
+<center>
+<tt>Threshold = ALLOC_HEADER_SIZE + <i>n</i> + 2*FREE_HEADER_SIZE</tt>
+</center>
+<p></p>
+<p>
+Once the function has found a region large enough to satisfy the
+request, it should compare the size of the region against the
+<tt>Threshold</tt>.
+If the chosen free region is smaller than the <tt>Threshold</tt>
+then <tt>vlad_alloc()</tt> should simply allocate the whole free
+region for the request (i.e. it gives the requestor more memory
+than they asked for).
+If the size of the chosen free region is at least as large as
+the threshold, then we split the region into two regions: the
+</p><ul>
+<li>
+the first part of the chosen free region becomes the allocated
+region (rounded up to the nearest multiple of 4 bytes)
+</li>
+<li>
+the second part of the chosen free region becomes a new free
+region, and is placed in the free list in the appropriate location
+</li>
+</ul>
+<p style="color:#BB0000">
+The above description suggests that free regions must contain
+at least <tt>2*FREE_HEADER_SIZE</tt> bytes.
+This is to avoid serious fragmentation of the memory into a
+myriad of tiny, not-very-usable free blocks.
+</p>
+<p>
+Figure 4 shows an example of splitting on allocation:
+</p>
+<center>
+<img src="./COMP1927 16s2 - Assignment 1_files/splitting.png">
+<p>
+Figure 4: Example split
+</p></center>
+<p>
+<s>To simplify things, we add the invariant that the free list always
+contains at least one region --- therefore, if the chosen region
+is the only free region in the list, then the function should
+immediately return <tt>NULL</tt>.</s>
+<span style="color:#BB0000">
+We add the invariant that there is always at least one free region.
+If the effect of the allocation would be to leave zero free regions
+(e.g. allocate the last free region, and don't split), the function
+should return <tt>NULL</tt>.
+</span>
+</p>
+<p>
+The allocated region should have its header set up appropriately
+(i.e. magic number <tt>MAGIC_ALLOC</tt> and correct size).
+If a new free region is created, it should also have its header
+set appropriately (i.e. magic number <tt>MAGIC_FREE</tt>,
+correct size, and appropriate <tt>next</tt> and <tt>prev</tt>
+links).
+</p>
+<p>
+If the global pointer <tt>free_list_ptr</tt> no longer points to a
+free region header (because it now points to an allocated header), you
+should adjust the pointer so that it points to the first free region
+in the <tt>memory[]</tt>.
+</p>
+<p>
+Finally, the function should return a pointer (cast to <tt>(void&nbsp;*)</tt>)
+to the first byte after the region header for the allocated region, i.e.
+</p>
+<pre class="c" style="font-family:monospace;"><span style="color: #b1b100;">return</span> <span style="color: #009900;">(</span><span style="color: #009900;">(</span><span style="color: #993333;">void</span><span style="color: #339933;">*</span><span style="color: #009900;">)</span><span style="color: #009900;">(</span>chosen_ptr <span style="color: #339933;">+</span> ALLOC_HEADER_SIZE<span style="color: #009900;">)</span><span style="color: #009900;">)</span></pre><p>
+<em>Note</em>: Each time you access the header of a region, you should check
+that the arbitrary number in the header is correct! If not, terminate the
+program after printing an appropriate error message, as shown:
+</p>
+<pre class="c" style="font-family:monospace;"><a href="http://www.opengroup.org/onlinepubs/009695399/functions/fprintf.html"><span style="color: #000066;">fprintf</span></a><span style="color: #009900;">(</span>stderr<span style="color: #339933;">,</span> <span style="color: #ff0000;">"vald_alloc: Memory corruption<span style="color: #000099; font-weight: bold;">\n</span>"</span><span style="color: #009900;">)</span><span style="color: #339933;">;</span>
+<a href="http://www.opengroup.org/onlinepubs/009695399/functions/exit.html"><span style="color: #000066;">exit</span></a><span style="color: #009900;">(</span>EXIT_FAILURE<span style="color: #009900;">)</span><span style="color: #339933;">;</span></pre><p>
+This way, user programs which invalidate memory can be caught by your
+memory management algorithms. (Of course, it would be helpful to have
+a more informative error message than the one we're asking you to use.)
+</p>
+
+<br>
+<h2>Milestone 3: Free <span style="font-size:67%;font-weight:normal">(3 Marks)</span></h2>
+<p>
+<b>Aim:</b>
+Implement the <tt>vlad_free()</tt> function, which returns an
+allocated region to the free list.
+</p>
+The input to <tt>vlad_free()</tt> is a C pointer to some object.
+The first thing to do is to check that the pointer lies within
+the allocated <tt>memory[]</tt> region.
+If not, print an error message and terminate the program:
+<p></p>
+<pre class="c" style="font-family:monospace;"><a href="http://www.opengroup.org/onlinepubs/009695399/functions/fprintf.html"><span style="color: #000066;">fprintf</span></a><span style="color: #009900;">(</span>stderr<span style="color: #339933;">,</span> <span style="color: #ff0000;">"vlad_free: Attempt to free via invalid pointer<span style="color: #000099; font-weight: bold;">\n</span>"</span><span style="color: #009900;">)</span><span style="color: #339933;">;</span>
+<a href="http://www.opengroup.org/onlinepubs/009695399/functions/exit.html"><span style="color: #000066;">exit</span></a><span style="color: #009900;">(</span>EXIT_FAILURE<span style="color: #009900;">)</span><span style="color: #339933;">;</span></pre><p>
+Recall that the pointer to an allocated region points to the first byte
+past the region header.
+To find where the region actually starts, you should look <tt>ALLOC_HEADER_SIZE</tt>
+bytes before the pointer.
+You should check here that the magic number in the header is <tt>MAGIC_ALLOC</tt>,
+to ensure you have found an allocated region header.
+If you discover that the region is not valid, you should terminate
+the program with the message:
+</p>
+<pre class="c" style="font-family:monospace;"><a href="http://www.opengroup.org/onlinepubs/009695399/functions/fprintf.html"><span style="color: #000066;">fprintf</span></a><span style="color: #009900;">(</span>stderr<span style="color: #339933;">,</span> <span style="color: #ff0000;">"vlad_free: Attempt to free non-allocated memory<span style="color: #000099; font-weight: bold;">\n</span>"</span><span style="color: #009900;">)</span><span style="color: #339933;">;</span>
+<a href="http://www.opengroup.org/onlinepubs/009695399/functions/exit.html"><span style="color: #000066;">exit</span></a><span style="color: #009900;">(</span>EXIT_FAILURE<span style="color: #009900;">)</span><span style="color: #339933;">;</span></pre><p>
+Once you have checked the magic number, traverse the free list (starting
+at the <tt>free_list_ptr</tt>
+global variable), to insert this header back into the free list in
+memory order. In other words, the formerly-allocated region should
+be inserted such that the next region has a greater position, and the
+previous region has a smaller position in the global memory block.
+If the new free region has the lowest memory address, make sure that
+you change <tt>free_list_ptr</tt> to reference it.
+</p>
+<p>
+<em>Note</em>: Don't forget to change the magic number in the free'd region
+to <tt>MAGIC_FREE</tt>.
+</p>
+<p>
+In the supplied code <tt>vlad_free()</tt> calls a function <tt>vlad_merge()</tt>
+which currently does nothing. You should leave the call to <tt>vlad_merge()</tt>
+as the last statement in your <tt>vlad_free()</tt> function.
+</p>
+
+<br>
+<h2>Milestone 4: Merge <span style="font-size:67%;font-weight:normal">(4 Marks)</span></h2>
+<p>
+<b>Aim:</b>
+Implement the <tt>vlad_merge()</tt> function to merge adjacent regions together.
+</p>
+<p>
+One of the problems with the allocator as it is implemented in
+Milestone 3 is that once regions are divided when allocating,
+they are never merged into larger regions again. This
+means that after sufficient allocation of small objects, the allocator
+will no longer be able to allocate a large contiguous block of memory
+even if it is available, because the large region required to house it
+is divided into several adjacent smaller regions.
+</p>
+<p>
+In this milestone you should complete the <tt>vlad_merge()</tt>
+function, which scans the free list and merges any adjacent free
+regions into single larger regions.
+</p>
+<p>
+You must make sure that the free region pointer still points to the
+first free region in memory after merging is done.
+</p>
+<p>
+Below is an example of how merging might occur after freeing a
+region located between two already free regions.
+</p>
+<center>
+<img src="./COMP1927 16s2 - Assignment 1_files/merging.png">
+<p>
+Figure 5: Example merge
+</p></center>
+
+<br>
+<h2>Challenge: Alternative Allocation Strategies</h2>
+<p>
+In the above, you were required to implement a best-fit strategy when
+choosing a free region for allocation.
+This is not the only possibility. 
+You could, for example, choose the largest free region (as long as it's
+big enough to satisfy the client's request).
+This would have the advantage of not forming small free regions, like
+best-fit has a tendency to do.
+As another alternative, you could simply choose at random, any one of
+the free regions that is big enough to satisfy the client's request.
+</p>
+<p>
+For this challenge you should explore several strategies, and see
+how they behave for a range of allocation/free scenarios.
+There is no need to add a mechanism to switch between strategies
+at run-time; it's ok if you simply "hard-wire" the strategy by
+assigning it in <tt>vlad_init()</tt>, but you will need alternative
+implementations of <tt>vlad_alloc()</tt> for each strategy. You
+could achiece this simply via a <tt>switch</tt> within the
+<tt>vlad_alloc()</tt> function.
+</p>
+<p>
+If you plan to do this, choose a collection of test data sets (see below),
+put them in files, run them for the different allocation strategies
+and record the behaviour. For some examples, some strategies might
+eventually run out of usable free regions (e.g. have very many small
+regions). In all cases, try to predict what you expect to observe
+(i.e. make a hypothesis) before you run each test case.
+</p>
+<p>
+You might find some usefulinformation on the Wikipedia pages for
+<a href="https://en.wikipedia.org/wiki/Memory_management">memory management</a>
+and
+<a href="https://en.wikipedia.org/wiki/Fragmentation_(computing)">fragmentation</a>.
+</p>
+<p>
+There are no marks for this, just kudos, and the chance to present your
+findings to the class if (a) they are particularly interesting, and
+(b) you want to.
+</p>
+
+<br>
+<h2>Testing</h2>
+<p>
+To assist with testing, we have provided a client called <tt>vlad</tt>
+that uses the memory allocator.
+This client is a small command-interpreter which has a collection of
+26 pointer variables (named <tt>a</tt> to <tt>z</tt>) and a simple set
+of commands for manipulating them.
+Commands are typed in response to a <b>&gt;</b> prompt and consist of
+a sequence of tokens separated by a single space character.
+In the description below <i>X</i> represents the name of a variable
+(a single character in the range <tt>a</tt> to <tt>z</tt>), and <i>N</i>
+represents an integer value.
+</p>
+<p>
+The following commands are available:
+</p>
+<dl>
+<dt> <big><b>+</b></big> <i>X</i> <i>N</i> </dt>
+<dd>
+uses <tt>vlad_malloc()</tt> to allocate a region of <i>N</i> bytes
+and assigns a pointer to this region to the variable <i>X</i>
+</dd>
+<dt> <big><b>-</b></big> <i>X</i> </dt>
+<dd>
+use <tt>vlad_free()</tt> to deallocate the region of memory being
+referenced by the variable <i>X</i>
+</dd>
+<dt> <big><b>*</b></big> <i>X</i> <i>N</i> </dt>
+<dd>
+assign the value <i>N</i> to the first byte of the memory being
+referenced by the variable <i>X</i>
+</dd>
+<dt> <big><b>!</b></big> </dt>
+<dd>
+print statistics about the current state of <tt>vlad</tt>'s memory
+</dd>
+<dt> <big><b>q</b></big> </dt>
+<dd>
+quit from the <tt>vlad</tt> program; control-D also does this
+</dd>
+</dl>
+<p>
+The <tt>vlad</tt> program is fussy about how you type your input.
+Any deviation from the above format will produce an "Invalid command"
+message; try retyping with no trailing or leading spaces, and a single
+space between tokens.
+</p>
+<p>
+The <tt>vlad</tt> program also checks for various errors (such as
+trying to assign a value via an unitialised pointer). See the code
+for more details.
+</p>
+<p>
+For testing, you can build a file containing a sequence of commands
+and then get <tt>vlad</tt> to read this file from its standard input
+and execute the commands. This allows you to build up a collection
+of testing scripts.
+</p>
+<p>
+Consider the following simple script (annotated with comments to explain
+what it's doing):
+</p>
+<pre>+ a 100       <span class="comment">// allocate 100 bytes, referenced by a (e.g. a = malloc(100))</span>
++ b 50        <span class="comment">// allocate 50 bytes, referenced by b (e.g. a = malloc(100))</span>
+* a 25        <span class="comment">// assign 25 to a's memory address (e.g. *a = 25)</span>
+* b 10        <span class="comment">// assign 10 to b's memory address (e.g. *b = 10)</span>
+!             <span class="comment">// display stats about allocator state</span>
+- b           <span class="comment">// deallocate b's memory (e.g. free(b))</span>
++ c 256       <span class="comment">// allocate 256 bytes, referenced by c (e.g. c = malloc(256))</span>
+!             <span class="comment">// display stats about allocator state</span>
+q             <span class="comment">// quit the vlad program</span>
+</pre>
+<p>
+If the above was contained in a file called <tt>vlad_test</tt>, then you
+could "execute" it via the command:
+</p>
+<pre>$ <b>./vlad &lt; vlad_test</b>
+</pre>
+<p>
+The <tt>vlad</tt> command produces a lot of output to tell you what it's doing.
+If you don't want this input, then you can run the program with an option to
+suppress it, e.g.
+</p>
+<pre>$ <b>./vlad quiet &lt; vlad_test</b>
+</pre>
+<p>
+As noted earlier, you should devise test scripts to exercise as many cases
+as possible of <tt>vlad</tt>'s behaviour.
+Keep copies of these to show your tutor; you do not need to submt them, but,
+as noted above, you can post your best ones as comments on the WebCMS
+<a target="_top" href="https://webcms3.cse.unsw.edu.au/COMP1927/16s2/resources/4573">Assignment 1 Testing Page</a>.
+</p>
+
+<br>
+<h2>Review of Work</h2>
+<p>
+During the two weeks following assignment submission, your tutor will
+check each assignment individually in labs.
+Your allocator must compile and run correctly on the CSE lab computers.
+Your tutor will be very thorough in testing your allocator, and will also
+inspect your code. Your tutor may ask you some tough questions, so be
+prepared to justify what you've done!
+</p>
+
+<br>
+<h2>Appendix: Offsets, Pointers, Pointer Arithmetic</h2>
+<p>
+One tricky aspect of this assignment is remembering whether a "pointer"
+value is a real C pointer or is an offset into the <tt>memory[]</tt>
+region, and converting between the two.
+To assist with keeping track of this, we use the following types:
+</p>
+<table border="0" cellpadding="4">
+<tbody><tr>
+<td><b><tt>vaddr_t</tt></b></td>
+<td>an offset into the <tt>memory[]</tt> region, in units of bytes</td>
+</tr>
+<tr>
+<td><b><tt>vlink_t</tt></b></td>
+<td>an offset into the <tt>memory[]</tt> region, in units of bytes</td>
+</tr>
+<tr>
+<td><b><tt>void *</tt></b></td>
+<td>a real C pointer, typically used by Vlad clients</td>
+</tr>
+</tbody></table>
+<p>
+Note that the difference between <tt>vaddr_t</tt> and <tt>vlink_t</tt>
+values is simply how they are used: <tt>vaddr_t</tt> is used for any
+reference into the <tt>memory[]</tt> region;  <tt>vlink_t</tt> is used
+when such a reference is to the header of a free region.
+</p>
+<p>
+If you are given a C pointer to a location within <tt>memory[]</tt>
+and you want to convert it to a <tt>vaddr_t</tt>, then you simply
+need to compute the difference between the pointer and <tt>&amp;memory[0]</tt>,
+and then type cast it to <tt>vaddr_t</tt>.
+If you need to convert a <tt>vaddr_t</tt> value to a C pointer,
+then you can add the <tt>vaddr_t</tt> value to <tt>&amp;memory[0]</tt>
+and then type cast it to <tt>(void *)</tt>.
+</p>
+<p>
+Note that the above rely on you doing arithmetic with pointers.
+C supports this, so that, for example, you could take a C pointer
+and add a number to it to get a new point.
+You have to be careful, though.
+If you have a pointer <tt>ptr</tt> of type <tt>(T *)</tt>, then
+<tt>ptr = ptr + 1</tt> will add <tt>sizeof(T)</tt> bytes to
+<tt>ptr</tt>. For example, have a look at the following code snippet:
+</p>
+<pre class="c" style="font-family:monospace;"><ol><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;"><span style="color: #993333;">void</span> <span style="color: #339933;">*</span>ptr0<span style="color: #339933;">;</span></div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;"><span style="color: #993333;">float</span> <span style="color: #339933;">*</span>ptr1<span style="color: #339933;">;</span></div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;"><span style="color: #993333;">unsigned</span> <span style="color: #993333;">char</span> <span style="color: #339933;">*</span> ptr2<span style="color: #339933;">;</span></div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;">&nbsp;</div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;">ptr0 <span style="color: #339933;">=</span> <a href="http://www.opengroup.org/onlinepubs/009695399/functions/malloc.html"><span style="color: #000066;">malloc</span></a><span style="color: #009900;">(</span><span style="color: #0000dd;">10</span><span style="color: #009900;">)</span><span style="color: #339933;">;</span></div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;">ptr1 <span style="color: #339933;">=</span> <span style="color: #009900;">(</span><span style="color: #993333;">float</span><span style="color: #339933;">*</span><span style="color: #009900;">)</span> ptr0<span style="color: #339933;">;</span></div></li><li style="font-weight: normal; vertical-align:top;"><div style="font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;">ptr2 <span style="color: #339933;">=</span> <span style="color: #009900;">(</span><span style="color: #993333;">unsigned</span> <span style="color: #993333;">char</span> <span style="color: #339933;">*</span><span style="color: #009900;">)</span> ptr0<span style="color: #339933;">;</span></div></li></ol></pre><p>
+and the GDB output:
+</p>
+<pre>(gdb) print ptr1
+$3 = (float *) 0x100100880
+(gdb) print ptr2
+$4 = (unsigned char *) 0x100100880 ""
+(gdb) print (ptr0 + 1)
+$5 = (void *) 0x100100881
+(gdb) print (ptr1 + 1)
+$6 = (float *) 0x100100884
+(gdb) print (ptr2 + 1)
+$7 = (unsigned char *) 0x100100881 ""
+</pre>
+<p>
+We can see that, even though <tt>ptr1</tt> and <tt>ptr2</tt> have the
+same value, <tt>ptr1+1</tt> and <tt>ptr2+1</tt> are not the
+same, as a <tt>float</tt> in this implementation has four bytes, and
+an <tt>unsigned char</tt> has 1 byte (in all standard-compliant C
+implementations).
+</p>
+<p>
+In the assignment, <tt>memory[]</tt> is defined to be an array of
+<tt>byte</tt>s. The <tt>sizeof(byte)</tt> is 1. Make sure that, if you
+want a pointer to a certain location in the memory block, you cast it
+to a <tt>byte</tt> pointer type, add the number of bytes,
+and then cast the resulting address to a pointer to a header struct,
+so you can initialise the header with the appropriate values.
+</p>
+<p>
+Have fun, &nbsp; <i>jas</i>
+</p>
+
+
+</dl></body></html>
